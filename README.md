@@ -24,7 +24,7 @@ npm run build
 
 ```sh
 npx playwright install chromium
-node scripts/check.mjs
+TEST_URL=http://localhost:5173/ node scripts/check.mjs
 ```
 
 `main`에 push하면 GitHub Actions가 테스트와 빌드 후 GitHub Pages에 배포합니다. 정적 파일만 사용하며 서버나 API 키가 필요하지 않습니다. 저장은 기기/브라우저별로 분리됩니다.
