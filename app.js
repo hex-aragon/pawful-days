@@ -1,51 +1,618 @@
-import{freshState,normalize,stageOf,applyCare}from'./game.js';
-import{WORLD,START,spots,flowerSpots,quests,move,regionAt,blocked}from'./world.js';
-import{makeTerrain,renderWorld,minimap}from'./draw.js';
-const $=s=>document.querySelector(s),key='pawful-adventure-v2',canvas=$('#world'),ctx=canvas.getContext('2d'),mini=$('#minimap').getContext('2d');
-function newState(){return{...freshState(),version:2,x:START.x,y:START.y,quest:0,progress:0,flowers:[],completed:0,totalFlowers:0,intro:false}}
-function load(data){const fresh=newState();if(!data||![1,2].includes(data.version))return fresh;const base=normalize({...data,version:1});return{...fresh,...base,version:2,x:Number.isFinite(data.x)&&!blocked(data.x,data.y)?data.x:START.x,y:Number.isFinite(data.y)&&!blocked(data.x,data.y)?data.y:START.y,quest:Number.isInteger(data.quest)?Math.min(quests.length,Math.max(0,data.quest)):0,progress:Number.isInteger(data.progress)?Math.max(0,Math.min(3,data.progress)):0,flowers:Array.isArray(data.flowers)?data.flowers.filter(i=>Number.isInteger(i)&&i>=0&&i<flowerSpots.length):[],totalFlowers:Number.isFinite(data.totalFlowers)?Math.max(0,data.totalFlowers):0,completed:Number.isFinite(data.completed)?Math.max(0,data.completed):0,intro:data.intro===true}}
-let state=newState();try{const saved=localStorage.getItem(key);state=load(JSON.parse(saved||localStorage.getItem('pawful-days-v1')))}catch{}
-let player={x:state.x,y:state.y,dir:1,phase:0,moving:false},view={w:0,h:0,zoom:1,dpr:1,cx:player.x,cy:player.y};let terrain=makeTerrain();
-let live={particles:[],friend:{x:835,y:1510,dir:1,moving:false},near:null,target:null,ball:null,resting:false};let keys=new Set(),joy={x:0,y:0},running=false,joyPointer=null,restUntil=0,friendUntil=0,elapsed=0,last=0,lastUI=0,saveTime=0,sound=false,audio,toastTimer,interactionCooldown=0,walked=0;
-const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function save(){state.x=Math.round(player.x);state.y=Math.round(player.y);try{localStorage.setItem(key,JSON.stringify(state));$('#save-state').textContent='발자국을 저장했어요'}catch{$('#save-state').textContent='저장 공간이 부족해요 · 메뉴에서 내보내기'}}
-function toast(text){$('#toast').textContent=text;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),3300)}
-function tone(notes=[523,659,784]){if(!sound)return;audio??=new AudioContext();audio.resume();notes.forEach((n,i)=>{const o=audio.createOscillator(),g=audio.createGain(),t=audio.currentTime+i*.1;o.type='sine';o.frequency.value=n;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.035,t+.02);g.gain.exponentialRampToValueAtTime(.001,t+.5);o.connect(g).connect(audio.destination);o.start(t);o.stop(t+.6)})}
-function particles(text,x=player.x,y=player.y-65,n=5){for(let i=0;i<n;i++)live.particles.push({text,x:x+(i-n/2)*12,y,life:1.6+i*.12,vx:(i-n/2)*9})}
-function resetInput(){keys.clear();joy={x:0,y:0};running=false;$('#stick').style.transform='';player.moving=false}
-function modal(html){resetInput();$('#dialog-content').innerHTML=html;$('#dialog').showModal()}
-function talk(speaker,text){resetInput();$('#speaker').textContent=speaker;$('#talk-text').textContent=text;$('#talk').classList.remove('hidden')}
-function closeTalk(){$('#talk').classList.add('hidden');interactionCooldown=elapsed+.4;canvas.focus()}
-function remember(text){state.memories.unshift({day:state.day,text});state.memories=state.memories.slice(0,60)}
-function xp(amount){const previous=stageOf(state.xp);state.xp+=amount;const next=stageOf(state.xp);if(next>previous){remember(next===1?'초원을 씩씩하게 걸으며 청소년 강아지로 자랐어요.':'여러 계절의 모험을 지나 커다란 강아지가 되었어요.');particles('✦',player.x,player.y-60,12);toast(`${state.name}가 ${next===1?'청소년':'어른'} 강아지로 자랐어요!`);tone([523,659,784,1047])}updateHUD();save()}
-function care(type,amount=0){const previous=state.xp;state={...state,...applyCare(state,type),version:2};const delta=state.xp-previous;state.xp=previous;xp(delta+amount)}
-function questEvent(target){const q=quests[state.quest];if(!q||q.target!==target)return;state.progress++;if(state.progress>=q.goal){const reward=q.reward;remember(`작은 모험 「${q.title}」를 마쳤어요.`);state.quest++;state.progress=0;state.completed++;xp(reward);particles('✦');tone();toast(`모험 완료! 사랑 +${reward} · ${quests[state.quest]?.title||'이제 어디든 자유롭게 모험해요'}`)}updateHUD();save()}
-function target(){const q=quests[state.quest];if(!q)return null;if(q.target==='flower'){return flowerSpots.filter((_,i)=>!state.flowers.includes(i)).sort((a,b)=>Math.hypot(a.x-player.x,a.y-player.y)-Math.hypot(b.x-player.x,b.y-player.y))[0]||spots.find(s=>s.id==='bed')}if(q.target==='fetch')return live.ball||spots.find(s=>s.id==='ball');return spots.find(s=>s.id===q.target)}
-function updateHUD(){const stage=stageOf(state.xp);$('#name').textContent=state.name;$('#stage').textContent=['아기 강아지','청소년 강아지','어른 강아지'][stage];$('#level').textContent=`Lv.${stage+1}`;$('#growth').style.width=`${Math.min(100,(state.xp-[0,100,250][stage])/[100,150,250][stage]*100)}%`;$('#day').textContent=`${state.day}번째 날 · ${live.resting?'포근한 꿈속':'느긋한 모험'}`;for(const n of['food','energy','love'])$('#'+n).style.width=state[n]+'%';const q=quests[state.quest];$('#quest-name').textContent=q?.title||'우리만의 계절';$('#quest-description').textContent=q?.description||'어디든 천천히 걸어요. 꽃을 모으고 친구와 놀며 계속 자라요.';$('#quest-count').textContent=q?`${q.count}${q.goal>1?` · ${state.progress} / ${q.goal}`:''}`:`모은 꽃 ${state.totalFlowers}송이 · 사랑 ${state.xp}`;$('#quest-progress').style.width=q?state.progress/q.goal*100+'%':'100%';live.target=target()}
-function interact(){if($('#dialog').open)return;if(!$('#talk').classList.contains('hidden')){closeTalk();return}if(live.resting||elapsed<interactionCooldown)return;const s=live.near;if(!s)return;interactionCooldown=elapsed+1.2;switch(s.id){case'grandma':questEvent('grandma');care('pet');talk('꽃집 할머니',`어서 오렴, ${state.name}! 작은 발로 가는 곳마다 네 세상이 될 거야. 집 앞에서 밥을 먹고 초원에 핀 꽃을 찾아보렴.`);remember('꽃집 할머니가 따뜻하게 맞아 주셨어요.');break;
-case'bowl':care('feed');questEvent('bowl');particles('♡');toast('냠냠! 배가 든든해졌어요. 포만감 +28');tone();remember('모험길에 밥그릇을 찾아 든든하게 먹었어요.');break;
-case'bed':live.resting=true;restUntil=elapsed+3;resetInput();toast('포근한 집에서 새근새근…');break;
-case'ball':if(live.ball){toast('던져진 공을 쫓아가 보세요!');return}live.ball={x:1260,y:1100,startX:1260,startY:1100,endX:1475,endY:1060,t:0,air:0};particles('♪');toast('공을 던졌어요! 달려가서 가져와요.');tone([660,880]);break;
-case'picnic':care('rest');particles('♪');toast('나뭇잎 소리를 들으며 기운을 회복했어요.');remember('햇살 쉼터에서 풀 냄새를 맡으며 쉬었어요.');tone();break;
-case'friend':questEvent('friend');care('play');friendUntil=elapsed+25;particles('♡');talk('숲속 친구 두리','멍! 같이 걷자! 네가 가는 곳을 따라갈게. 새로운 냄새를 찾아보자.');remember('숲속에서 두리를 만나 나란히 걸었어요.');break;
-case'lake':questEvent('lake');care('pet');particles('✧');talk('반짝 호수','찰랑, 찰랑… 물 위로 햇살이 잘게 부서져요. 다리를 건너 저편도 구경해 볼까요?');remember('반짝이는 호수 앞에서 조용히 물소리를 들었어요.');tone([392,523,659]);break;}updateHUD();save()}
-function finishRest(){live.resting=false;care('rest');questEvent('bed');state.day++;state.flowers=[];state.daily=[];state.dailyReward=false;remember('우리 집에서 푹 자고 새로운 아침을 맞았어요.');toast('좋은 아침! 들꽃도 다시 피었어요.');tone();updateHUD();save()}
-function nearest(){let candidates=spots.map(s=>s.id==='friend'?{...s,x:live.friend.x,y:live.friend.y}:s);if(live.ball)candidates=candidates.filter(s=>s.id!=='ball');const s=candidates.sort((a,b)=>Math.hypot(a.x-player.x,a.y-player.y)-Math.hypot(b.x-player.x,b.y-player.y))[0];return Math.hypot(s.x-player.x,s.y-player.y)<88?s:null}
-function resize(){view.w=innerWidth;view.h=innerHeight;view.dpr=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(view.w*view.dpr);canvas.height=Math.round(view.h*view.dpr);view.zoom=innerWidth<650?.88:innerWidth<1000?1:1.18}
-function frame(timestamp){const dt=Math.min(.04,(timestamp-last)/1000||.016);last=timestamp;const paused=$('#dialog').open||!$('#talk').classList.contains('hidden');if(!paused){elapsed+=dt;interactionCooldown=Math.max(0,interactionCooldown);let dx=(keys.has('d')||keys.has('arrowright')?1:0)-(keys.has('a')||keys.has('arrowleft')?1:0)+joy.x,dy=(keys.has('s')||keys.has('arrowdown')?1:0)-(keys.has('w')||keys.has('arrowup')?1:0)+joy.y;const magnitude=Math.hypot(dx,dy);if(magnitude>1){dx/=magnitude;dy/=magnitude}player.moving=magnitude>.08&&!live.resting;if(player.moving){const speed=(keys.has('shift')||running?220:145)*(stageOf(state.xp)===0?.92:1);const p=move(player,dx*speed*dt,dy*speed*dt);const distance=Math.hypot(p.x-player.x,p.y-player.y);walked+=distance;player.x=p.x;player.y=p.y;if(Math.abs(dx)>.06)player.dir=dx<0?-1:1;player.phase+=dt*(keys.has('shift')||running?17:12);if(walked>350){walked=0;state.energy=Math.max(10,state.energy-1);state.food=Math.max(10,state.food-1)}if(!state.intro){state.intro=true;$('#hint').innerHTML=innerWidth<800?'꽃 위로 걸어가면 모을 수 있어요':'Shift로 달리기 <span>꽃 위로 걸어가면 모을 수 있어요</span>'}}else player.phase+=dt*2;
-if(live.resting&&elapsed>=restUntil)finishRest();
-for(let i=0;i<flowerSpots.length;i++){if(state.flowers.includes(i))continue;const f=flowerSpots[i];if(Math.hypot(f.x-player.x,f.y-player.y)<30){state.flowers.push(i);state.totalFlowers++;particles('✿',f.x,f.y-15);xp(5);questEvent('flower');tone([784,988]);toast('들꽃을 모았어요 · 사랑 +5');remember('초원을 걷다가 작은 들꽃을 찾았어요.');save()}}
-if(live.ball){const b=live.ball;b.t+=dt;if(b.t<1){b.x=b.startX+(b.endX-b.startX)*b.t;b.y=b.startY+(b.endY-b.startY)*b.t;b.air=Math.sin(b.t*Math.PI)*75}else{b.x=b.endX;b.y=b.endY;b.air=0;if(Math.hypot(b.x-player.x,b.y-player.y)<38){live.ball=null;care('play',8);questEvent('fetch');particles('♪');toast('공을 찾았어요! 폴짝폴짝, 정말 신나요.');tone();remember('직접 달려가 공을 찾아왔어요.')}}}
-const f=live.friend;f.moving=false;if(friendUntil>elapsed){const d=Math.hypot(player.x-f.x,player.y-f.y);if(d>72){const next=move(f,(player.x-f.x)/d*135*dt,(player.y-f.y)/d*135*dt);f.dir=player.x<f.x?-1:1;f.x=next.x;f.y=next.y;f.moving=true}}else if(Math.hypot(f.x-835,f.y-1510)>5){const d=Math.hypot(f.x-835,f.y-1510);const next=move(f,(835-f.x)/d*90*dt,(1510-f.y)/d*90*dt);f.dir=835<f.x?-1:1;f.x=next.x;f.y=next.y;f.moving=true}
+import {
+  COATS,
+  COURSE_NAMES,
+  createSave,
+  sanitize,
+  makeCourse,
+  createPlayer,
+  jump,
+  stepPlayer,
+  stageOf,
+} from "./platformer.js";
+import { loadArt, drawDog } from "./sprites.js";
+import { render } from "./scenery.js";
+const $ = (s) => document.querySelector(s),
+  key = "pawful-platformer-v3",
+  canvas = $("#world"),
+  ctx = canvas.getContext("2d");
+let save = createSave();
+try {
+  save = sanitize(
+    JSON.parse(
+      localStorage.getItem(key) ||
+        localStorage.getItem("pawful-adventure-v2") ||
+        localStorage.getItem("pawful-days-v1"),
+    ),
+  );
+} catch {}
+let art,
+  course = makeCourse(save.course),
+  p = createPlayer(save.checkpoint),
+  view = {
+    w: innerWidth,
+    h: innerHeight,
+    dpr: 1,
+    scale: 1,
+    camera: 0,
+    offsetY: 0,
+  },
+  mode = "menu",
+  time = 0,
+  last = 0,
+  saveTime = 0,
+  hudTime = 0,
+  toastTimer,
+  audio,
+  sound = false,
+  nearCooldown = 0,
+  sitUntil = 0,
+  dustTimer = 0;
+let keys = new Set(),
+  touch = { left: false, right: false, run: false, jumpHeld: false },
+  live = {
+    collected: new Set(save.collected),
+    near: null,
+    ball: null,
+    particles: [],
+    dust: [],
+    sitting: false,
+  };
+let runTreats = 0;
+const escape = (s) =>
+  String(s).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+function persist() {
+  save.collected = [...live.collected];
+  try {
+    localStorage.setItem(key, JSON.stringify(save));
+    $("#save-note").textContent = "발자국을 저장했어요";
+  } catch {
+    $("#save-note").textContent =
+      "자동 저장이 어려워요 · 메뉴에서 기록 내보내기";
+  }
 }
-for(const p of live.particles){p.life-=dt;p.y-=dt*30;p.x+=p.vx*dt}live.particles=live.particles.filter(p=>p.life>0);const halfW=view.w/view.zoom/2,halfH=view.h/view.zoom/2;const targetX=Math.max(halfW,Math.min(WORLD.width-halfW,player.x)),targetY=Math.max(halfH,Math.min(WORLD.height-halfH,player.y));view.cx+=(targetX-view.cx)*Math.min(1,dt*7);view.cy+=(targetY-view.cy)*Math.min(1,dt*7);if(timestamp-lastUI>120){live.near=paused||live.resting?null:nearest();live.target=target();$('#interact-wrap').classList.toggle('hidden',!live.near);if(live.near){$('#interact-label').textContent=live.near.label;$('#interact-text').textContent=live.near.verb}$('#region').textContent=regionAt(player.x,player.y);for(const n of['food','energy','love'])$('#'+n).style.width=state[n]+'%';minimap(mini,state,player);lastUI=timestamp}if(timestamp-saveTime>5000){save();saveTime=timestamp}renderWorld(ctx,terrain,view,player,state,live,elapsed);requestAnimationFrame(frame)}
-window.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA'].includes(e.target.tagName))return;const k=e.key.toLowerCase();if(['arrowup','arrowdown','arrowleft','arrowright',' ','w','a','s','d'].includes(k))e.preventDefault();if($('#dialog').open)return;if(!e.repeat&&['e',' '].includes(k)){interact();return}if(!e.repeat&&k==='m'){showMap();return}keys.add(k)});window.addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));window.addEventListener('blur',()=>{resetInput();save()});document.addEventListener('visibilitychange',()=>{if(document.hidden){resetInput();save()}});window.addEventListener('resize',resize);$('#interact').onclick=interact;$('#talk-close').onclick=closeTalk;
-const joystick=$('#joystick');function updateStick(e){const r=joystick.getBoundingClientRect();let x=e.clientX-r.left-r.width/2,y=e.clientY-r.top-r.height/2;const length=Math.hypot(x,y),max=r.width*.32;if(length>max){x=x/length*max;y=y/length*max}joy={x:x/max,y:y/max};$('#stick').style.transform=`translate(${x}px,${y}px)`}joystick.onpointerdown=e=>{e.preventDefault();joyPointer=e.pointerId;joystick.setPointerCapture(e.pointerId);updateStick(e)};joystick.onpointermove=e=>{if(e.pointerId===joyPointer)updateStick(e)};for(const type of['pointerup','pointercancel','lostpointercapture'])joystick.addEventListener(type,()=>{joyPointer=null;joy={x:0,y:0};$('#stick').style.transform=''});$('#run').onpointerdown=e=>{e.preventDefault();running=true;e.target.setPointerCapture(e.pointerId)};for(const type of['pointerup','pointercancel','lostpointercapture'])$('#run').addEventListener(type,()=>running=false);
-$('#close').onclick=()=>$('#dialog').close();$('#dialog').addEventListener('close',()=>{resetInput();canvas.focus()});$('#quest-toggle').onclick=()=>{const hidden=$('#quest-body').classList.toggle('hidden');$('.quest').classList.toggle('collapsed',hidden);$('#quest-toggle').textContent=hidden?'+':'−'};
-$('#sound').onclick=()=>{sound=!sound;$('#sound').textContent=sound?'♪':'♫';$('#sound').setAttribute('aria-label',sound?'효과음 끄기':'효과음 켜기');$('#sound').setAttribute('aria-pressed',String(sound));tone();toast(sound?'작은 모험의 소리를 켰어요':'소리를 껐어요')};
-$('#rename').onclick=()=>{modal(`<h2>어떤 이름으로 불러 줄까요?</h2><form id="name-form"><label for="name-input">강아지 이름</label><input id="name-input" maxlength="12" required value="${escape(state.name)}"><button class="primary">이 이름으로 모험하기</button></form>`);$('#name-form').onsubmit=e=>{e.preventDefault();if(!$('#name-input').value.trim())return;state.name=$('#name-input').value.trim();updateHUD();save();$('#dialog').close()}};
-function showMap(){modal('<h2>작은 발로, 넓은 세상으로</h2><canvas id="big-map" width="560" height="400" aria-label="우리 집은 북서쪽, 초원은 중앙, 숲은 남쪽, 호수는 동쪽입니다."></canvas><p class="map-legend">● 갈색 점이 현재 위치예요. 밝은 흙길을 따라 걸으면 친구와 쉼터를 만날 수 있어요.</p><button class="primary" id="map-close">다시 걸으러 가기</button>');minimap($('#big-map').getContext('2d'),state,player,true);$('#map-close').onclick=()=>$('#dialog').close()}
-$('#map-toggle').onclick=showMap;$('#minimap-button').onclick=showMap;
-function menu(){modal('<h2>꼬리의 하루</h2><p>작은 강아지가 되어 마을과 숲을 자유롭게 걸어요. 모험과 돌봄을 통해 사랑 100에 청소년, 250에 어른으로 자랍니다.</p><ul><li>방향키 / WASD: 걷기 · Shift: 달리기</li><li>E / Space: 가까운 친구나 물건과 교감</li><li>M: 지도 · 모바일: 왼쪽 조이스틱 + 오른쪽 행동 버튼</li><li>꽃 위로 걸으면 자동 수집, 던진 공은 직접 쫓아가요.</li><li>집 앞 방석에서 잠들면 새날이 오고 꽃이 다시 피어요.</li></ul><button class="primary" id="continue">계속 모험하기</button><button class="secondary" id="album">우리의 추억 일기</button><button class="secondary" id="export">기록 파일 내려받기</button><label class="secondary" for="import" style="cursor:pointer">기록 파일 불러오기</label><input id="import" type="file" accept="application/json" hidden><button class="secondary" id="home">집 앞 길로 돌아오기</button><button class="secondary" id="reset">새 강아지로 시작하기</button><p style="font-size:10px">같은 기기와 브라우저에 자동 저장돼요. 쉬는 동안에는 수치가 줄지 않아요.</p>');$('#continue').onclick=()=>$('#dialog').close();$('#album').onclick=()=>modal(`<h2>우리의 발자국 일기</h2>${state.memories.map(m=>`<div class="memory"><small>${m.day}번째 날</small><p>${escape(m.text)}</p></div>`).join('')}`);$('#export').onclick=()=>{save();const url=URL.createObjectURL(new Blob([JSON.stringify(state,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='pawful-adventure.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};$('#import').onchange=async e=>{try{const data=JSON.parse(await e.target.files[0].text());if(![1,2].includes(data.version)||typeof data.name!=='string'||!Number.isFinite(data.xp))throw Error();state=load(data);resetWorld();$('#dialog').close();toast('추억 속 모험을 다시 시작해요')}catch{toast('꼬리의 하루 기록 JSON 파일을 선택해 주세요.')}};$('#home').onclick=()=>{player.x=START.x;player.y=START.y;save();$('#dialog').close();toast('집 앞 길로 돌아왔어요')};$('#reset').onclick=()=>{modal('<h2>새로운 첫 만남을 시작할까요?</h2><p>지금의 성장과 발자국 일기가 지워져요. 간직하려면 먼저 기록 파일을 내려받아 주세요.</p><button class="primary" id="confirm-reset">새 강아지로 시작하기</button><button class="secondary" id="cancel-reset">취소</button>');$('#cancel-reset').onclick=menu;$('#confirm-reset').onclick=()=>{state=newState();resetWorld();$('#dialog').close();toast('첫 모험을 시작해요. 할머니를 찾아가 보세요!')}}}
-function resetWorld(){resetInput();player={x:state.x,y:state.y,dir:1,phase:0,moving:false};view.cx=player.x;view.cy=player.y;live={particles:[],friend:{x:835,y:1510,dir:1,moving:false},near:null,target:null,ball:null,resting:false};friendUntil=restUntil=0;updateHUD();save()}
-$('#menu').onclick=menu;resize();updateHUD();requestAnimationFrame(frame);if(innerWidth<800)$('#hint').textContent='왼쪽 조이스틱으로 걸어 보세요';toast(state.intro?'다시 왔구나! 오늘은 어디로 가볼까?':'우리의 첫 모험! 집 앞 할머니를 찾아가요.');
+function toast(text) {
+  $("#toast").textContent = text;
+  $("#toast").classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $("#toast").classList.remove("show"), 3100);
+}
+function notes(freqs = [523, 659, 784]) {
+  if (!sound) return;
+  audio ??= new AudioContext();
+  audio.resume();
+  freqs.forEach((f, i) => {
+    const o = audio.createOscillator(),
+      g = audio.createGain(),
+      t = audio.currentTime + i * 0.085;
+    o.type = "sine";
+    o.frequency.value = f;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.045, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+    o.connect(g).connect(audio.destination);
+    o.start(t);
+    o.stop(t + 0.45);
+  });
+}
+function particles(text, x = p.x, y = p.y - 90, n = 5) {
+  for (let i = 0; i < n; i++)
+    live.particles.push({
+      text,
+      x: x + (i - n / 2) * 13,
+      y,
+      life: 1.2 + i * 0.08,
+      vx: (i - n / 2) * 8,
+    });
+}
+function remember(text) {
+  save.memories.unshift(`${save.day}일 · ${text}`);
+  save.memories = save.memories.slice(0, 60);
+}
+function gain(xp) {
+  const before = stageOf(save.xp);
+  save.xp += xp;
+  if (stageOf(save.xp) > before) {
+    toast(
+      `${save.name}가 ${stageOf(save.xp) === 1 ? "청소년" : "어른"} 강아지로 자랐어요!`,
+    );
+    particles("✦", p.x, p.y - 120, 12);
+    notes([523, 659, 784, 1046]);
+    remember("한 뼘 더 자랐어요. 더 넓은 길을 함께 달려요.");
+  }
+  updateHUD();
+  persist();
+}
+function resetInput() {
+  keys.clear();
+  touch = { left: false, right: false, run: false, jumpHeld: false };
+  p.vx = 0;
+}
+function modal(html) {
+  resetInput();
+  $("#dialog-content").innerHTML = html;
+  $("#dialog").showModal();
+}
+function updateHUD() {
+  const stage = stageOf(save.xp);
+  $("#dog-name").textContent = save.name;
+  $("#growth-name").textContent = [
+    "아기 강아지",
+    "청소년 강아지",
+    "어른 강아지",
+  ][stage];
+  $("#xp").style.width =
+    Math.min(
+      100,
+      ((save.xp - [0, 100, 250][stage]) / [100, 150, 250][stage]) * 100,
+    ) + "%";
+  $("#course-number").textContent = [
+    "첫 번째 산책길",
+    "두 번째 산책길",
+    "세 번째 산책길",
+  ][save.course];
+  $("#course-name").textContent = COURSE_NAMES[save.course];
+  $("#treats").textContent = save.treats;
+  $("#distance").style.width = Math.min(100, (p.x / course.length) * 100) + "%";
+  if (art) {
+    const c = $("#portrait").getContext("2d");
+    c.clearRect(0, 0, 100, 100);
+    drawDog(c, art, save.coat, 50, 94, { mode: "idle", size: 110 });
+  }
+  document.querySelectorAll("[data-coat]").forEach((b) => {
+    b.classList.toggle("selected", +b.dataset.coat === save.coat);
+    b.setAttribute("aria-pressed", String(+b.dataset.coat === save.coat));
+  });
+  $("#start>span").textContent =
+    save.checkpoint > 160 ? "이어서 달리기" : "함께 달리기";
+}
+function showSelection() {
+  resetInput();
+  clearTimeout(toastTimer);
+  $("#toast").classList.remove("show");
+  mode = "menu";
+  $("#start-screen").classList.remove("hidden");
+  for (const id of [
+    "hud",
+    "controls",
+    "keyboard-hint",
+    "interact",
+    "save-note",
+  ])
+    $("#" + id).classList.add("hidden");
+  updateHUD();
+  persist();
+}
+function begin(index = save.course, fresh = false) {
+  if (fresh) {
+    save.checkpoint = 160;
+    save.collected = save.collected.filter((id) => !id.startsWith(index + "-"));
+  }
+  save.course = index;
+  course = makeCourse(index);
+  p = createPlayer(save.checkpoint);
+  live = {
+    collected: new Set(save.collected),
+    near: null,
+    ball: null,
+    particles: [],
+    dust: [],
+    sitting: false,
+  };
+  runTreats = 0;
+  mode = "play";
+  view.camera = Math.max(0, p.x - (view.w / view.scale) * 0.35);
+  $("#start-screen").classList.add("hidden");
+  for (const id of ["hud", "controls", "keyboard-hint", "save-note"])
+    $("#" + id).classList.remove("hidden");
+  if (innerWidth < 850)
+    $("#keyboard-hint").textContent =
+      "좌우로 달리고, 점프를 두 번 눌러 더 높이!";
+  $("#dialog").close();
+  canvas.focus();
+  updateHUD();
+  persist();
+  toast("가볍게 달려 볼까? 공중에서 한 번 더 점프할 수 있어요.");
+  notes();
+}
+function finish() {
+  mode = "complete";
+  resetInput();
+  const first = !save.finished[save.course];
+  save.finished[save.course] = true;
+  save.unlocked = Math.min(2, Math.max(save.unlocked, save.course + 1));
+  save.checkpoint = 160;
+  save.day++;
+  gain(first ? 40 : 15);
+  remember(
+    `${COURSE_NAMES[save.course]} 완주! 함께 달리고 뛰며 추억을 만들었어요.`,
+  );
+  persist();
+  notes([523, 659, 784, 1046]);
+  modal(
+    `<div class="result-stars">✦ ✦ ✦</div><h2 style="text-align:center">우리, 함께 해냈어!</h2><p style="text-align:center">${COURSE_NAMES[save.course]}의 끝까지 달려왔어요.<br>${save.name}와 함께한 발자국이 한 뼘 더 자랐어요.</p><div class="result-stats"><div><b>${runTreats}</b><small>이번에 찾은 햇살</small></div><div><b>+${first ? 40 : 15}</b><small>완주 사랑</small></div><div><b>${save.day}</b><small>함께한 날</small></div></div><button class="primary" id="next">${save.course < 2 ? "다음 산책길로" : "다시 신나게 달리기"}</button><button class="secondary" id="choose-friend">친구 선택 화면</button>`,
+  );
+  $("#next").onclick = () => begin(save.course < 2 ? save.course + 1 : 0, true);
+  $("#choose-friend").onclick = () => {
+    $("#dialog").close();
+    showSelection();
+  };
+}
+function respawn() {
+  p = createPlayer(save.checkpoint);
+  live.ball = null;
+  live.sitting = false;
+  view.camera = Math.max(0, p.x - (view.w / view.scale) * 0.35);
+  particles("✧");
+  toast("괜찮아! 방금 지나온 깃발에서 다시 출발해요.");
+  notes([392, 523]);
+  persist();
+}
+function interact() {
+  if (mode !== "play" || $("#dialog").open || time < nearCooldown || !live.near)
+    return;
+  nearCooldown = time + 1.8;
+  const s = live.near;
+  if (s.id === "bowl") {
+    live.sitting = true;
+    sitUntil = time + 1.4;
+    gain(5);
+    remember("밥을 맛있게 먹고 다시 달릴 힘을 얻었어요.");
+    toast("냠냠, 든든하게! 사랑 +5");
+    particles("♡");
+    notes();
+  }
+  if (s.id === "rest") {
+    live.sitting = true;
+    sitUntil = time + 2;
+    gain(6);
+    toast("잠깐 쉬어 가도 좋아. 네 곁은 언제나 포근해.");
+    particles("♪");
+    notes([392, 523, 659]);
+    remember("나무 그늘에 앉아 바람을 느꼈어요.");
+  }
+  if (s.id === "ball" && !live.ball) {
+    live.ball = { x: s.x, y: 555, t: 0, start: s.x, end: s.x + 250 };
+    toast("공을 던졌어요! 달려가서 가져와요.");
+    notes([660, 880]);
+  }
+  if (s.id === "friend") {
+    live.sitting = true;
+    sitUntil = time + 1.8;
+    gain(5);
+    toast("멍멍! 같이 달리니 더 신나! 사랑 +5");
+    particles("♡", s.x, s.y - 100);
+    remember("산책길에서 새 친구와 인사했어요.");
+    notes();
+  }
+}
+function doJump() {
+  if (mode !== "play" || $("#dialog").open) return;
+  live.sitting = false;
+  jump(p);
+  notes([510, 720]);
+}
+function resize() {
+  view.w = innerWidth;
+  view.h = innerHeight;
+  view.dpr = Math.min(devicePixelRatio || 1, 2);
+  view.scale = innerWidth < 580 ? 0.72 : Math.min(1.35, innerHeight / 720);
+  view.offsetY =
+    innerHeight * (innerWidth < 580 ? 0.74 : 0.79) - 600 * view.scale;
+  canvas.width = Math.round(view.w * view.dpr);
+  canvas.height = Math.round(view.h * view.dpr);
+}
+function frame(timestamp) {
+  const dt = Math.min(0.04, (timestamp - last) / 1000 || 0.016);
+  last = timestamp;
+  const paused = $("#dialog").open;
+  time += dt;
+  if (mode === "play" && !paused) {
+    const input = {
+      left: keys.has("arrowleft") || keys.has("a") || touch.left,
+      right: keys.has("arrowright") || keys.has("d") || touch.right,
+      run: keys.has("shift") || touch.run,
+      jumpHeld:
+        keys.has(" ") || keys.has("arrowup") || keys.has("w") || touch.jumpHeld,
+    };
+    if (live.sitting && time < sitUntil && !input.left && !input.right) {
+      p.vx = 0;
+    } else {
+      live.sitting = false;
+      stepPlayer(p, input, dt, course);
+    }
+    if (p.y > 880) respawn();
+    const dest = Math.max(
+      0,
+      Math.min(
+        course.length - view.w / view.scale,
+        p.x - (view.w / view.scale) * 0.36,
+      ),
+    );
+    view.camera += (dest - view.camera) * Math.min(1, dt * 7);
+    for (const cp of course.checkpoints) {
+      if (p.grounded && p.x >= cp && cp > save.checkpoint) {
+        save.checkpoint = cp;
+        toast("새로운 발자국을 기억했어요. 여기서 다시 시작할 수 있어요.");
+        particles("✦");
+        persist();
+      }
+    }
+    for (const t of course.treats)
+      if (
+        !live.collected.has(t.id) &&
+        Math.hypot(t.x - p.x, t.y - (p.y - 42)) < 43
+      ) {
+        live.collected.add(t.id);
+        save.treats++;
+        runTreats++;
+        particles("✧", t.x, t.y, 2);
+        gain(2);
+        notes([880, 1046]);
+      }
+    if (live.ball) {
+      const b = live.ball;
+      b.t += dt;
+      if (b.t < 1.2) {
+        const k = b.t / 1.2;
+        b.x = b.start + (b.end - b.start) * k;
+        b.y = 578 - Math.sin(k * Math.PI) * 155;
+      } else {
+        b.x = b.end;
+        b.y = 578;
+        if (Math.hypot(p.x - b.x, p.y - 35 - b.y) < 58) {
+          live.ball = null;
+          save.fetches++;
+          gain(12);
+          particles("♡");
+          toast("공을 가져왔어요! 정말 신나! 사랑 +12");
+          remember("공을 쫓아 달려가서 멋지게 가져왔어요.");
+          notes();
+        }
+      }
+    }
+    dustTimer -= dt;
+    if (p.grounded && Math.abs(p.vx) > 80 && dustTimer < 0) {
+      dustTimer = 0.07;
+      live.dust.push({
+        x: p.x - p.dir * 35,
+        y: p.y - 4,
+        r: 4 + Math.random() * 5,
+        life: 0.65,
+      });
+    }
+    live.near =
+      course.spots.find(
+        (s) =>
+          Math.abs(s.x - p.x) < 85 &&
+          Math.abs(s.y - p.y) < 40 &&
+          !(s.id === "ball" && live.ball),
+      ) || null;
+    $("#interact").classList.toggle("hidden", !live.near);
+    if (live.near) $("#interact span").textContent = live.near.label;
+    if (p.x >= 4490 && p.grounded) finish();
+  }
+  for (const x of live.particles) {
+    x.life -= dt;
+    x.y -= dt * 26;
+    x.x += x.vx * dt;
+  }
+  live.particles = live.particles.filter((x) => x.life > 0);
+  for (const x of live.dust) {
+    x.life -= dt;
+    x.r += dt * 8;
+    x.y -= dt * 8;
+  }
+  live.dust = live.dust.filter((x) => x.life > 0);
+  if (timestamp - hudTime > 80) {
+    canvas.dataset.play = JSON.stringify({
+      x: p.x,
+      y: p.y,
+      vx: p.vx,
+      vy: p.vy,
+      grounded: p.grounded,
+      jumps: p.jumps,
+      phase: p.phase,
+      camera: view.camera,
+      mode,
+    });
+    $("#distance").style.width =
+      Math.min(100, (p.x / course.length) * 100) + "%";
+    hudTime = timestamp;
+  }
+  if (timestamp - saveTime > 5000) {
+    persist();
+    saveTime = timestamp;
+  }
+  render(ctx, art, view, p, save, course, live, time, mode === "menu");
+  requestAnimationFrame(frame);
+}
+$("#start").onclick = () => begin();
+document.querySelectorAll("[data-coat]").forEach(
+  (b) =>
+    (b.onclick = () => {
+      save.coat = +b.dataset.coat;
+      if (["보리", ...COATS].includes(save.name))
+        save.name = save.coat === 3 ? "보리" : COATS[save.coat];
+      updateHUD();
+      persist();
+      notes([523, 659]);
+    }),
+);
+$("#name-edit").onclick = () => {
+  modal(
+    `<h2>네 이름을 불러 줄게</h2><form id="name-form"><label for="name-input">강아지 이름</label><input id="name-input" maxlength="12" required value="${escape(save.name)}"><button class="primary">이 이름으로 함께하기</button></form>`,
+  );
+  $("#name-form").onsubmit = (e) => {
+    e.preventDefault();
+    const name = $("#name-input").value.trim();
+    if (!name) return;
+    save.name = name;
+    updateHUD();
+    persist();
+    $("#dialog").close();
+  };
+};
+function help() {
+  modal(
+    '<h2>달리고, 폴짝 뛰고!</h2><p>강아지를 직접 움직여 오른쪽 끝의 깃발까지 모험해요. 네 가지 털색 모두 같은 능력으로 달려요.</p><ul><li>← → / A D: 달리기 · Shift: 더 빠르게</li><li>Space / ↑ / W: 점프. 공중에서 한 번 더 점프할 수 있어요.</li><li>E: 밥 먹기, 쉬기, 친구 만나기, 공놀이</li><li>모바일: 왼쪽 방향 버튼과 오른쪽 점프 버튼. 달리기 버튼을 함께 누르면 빨라져요.</li><li>햇살을 모으면 성장해요. 사랑 100에 청소년, 250에 어른이 돼요.</li><li>물에 빠져도 중간 깃발에서 다시 출발해요. 기록은 사라지지 않아요.</li></ul><button class="primary" id="help-close">알겠어, 같이 가자!</button>',
+  );
+  $("#help-close").onclick = () => $("#dialog").close();
+}
+$("#start-help").onclick = help;
+function courses() {
+  modal(
+    `<h2>오늘은 어디로 달릴까?</h2>${COURSE_NAMES.map((name, i) => `<button class="course-choice" data-course="${i}" ${i > save.unlocked ? "disabled" : ""}><b>${i + 1}. ${name} ${i > save.unlocked ? "🔒" : save.finished[i] ? "✓" : ""}</b><small>${["풀향기를 따라 달리는 첫 번째 모험", "높은 나무 발판을 뛰어넘는 숲속 모험", "징검다리를 폴짝폴짝 건너는 물빛 모험"][i]}${i > save.unlocked ? " · 앞 산책길을 마치면 열려요." : ""}</small></button>`).join("")}`,
+  );
+  document
+    .querySelectorAll("[data-course]")
+    .forEach((b) => (b.onclick = () => begin(+b.dataset.course, true)));
+}
+$("#courses").onclick = courses;
+$("#portrait-button").onclick = showSelection;
+$("#interact").onclick = interact;
+$("#sound").onclick = () => {
+  sound = !sound;
+  $("#sound").textContent = sound ? "♪" : "♫";
+  $("#sound").setAttribute("aria-pressed", String(sound));
+  $("#sound").setAttribute("aria-label", sound ? "효과음 끄기" : "효과음 켜기");
+  notes();
+  toast(sound ? "모험의 소리를 켰어요" : "소리를 껐어요");
+};
+function pause() {
+  modal(
+    '<h2>잠깐, 숨 고르기</h2><button class="primary" id="resume">계속 달리기</button><button class="secondary" id="change-coat">강아지 고르기</button><button class="secondary" id="how">놀이 방법</button><button class="secondary" id="replay">이 산책길 처음부터</button><button class="secondary" id="journal">우리의 발자국 일기</button><button class="secondary" id="export">성장 기록 내려받기</button><label class="secondary" for="import" style="cursor:pointer">성장 기록 불러오기</label><input type="file" id="import" accept="application/json" hidden><button class="secondary" id="reset">새 아기 강아지로 시작하기</button><p style="font-size:10px">같은 브라우저에 자동 저장돼요. 위치는 가장 최근 깃발에서 이어집니다.</p>',
+  );
+  $("#resume").onclick = () => $("#dialog").close();
+  $("#change-coat").onclick = () => {
+    $("#dialog").close();
+    showSelection();
+  };
+  $("#how").onclick = help;
+  $("#replay").onclick = () => begin(save.course, true);
+  $("#journal").onclick = () =>
+    modal(
+      `<h2>우리의 발자국 일기</h2><p>${save.memories.length ? save.memories.map(escape).join("<br>") : "첫 번째 발자국을 기다리고 있어요. 함께 달려 볼까요?"}</p>`,
+    );
+  $("#export").onclick = () => {
+    persist();
+    const url = URL.createObjectURL(
+        new Blob([JSON.stringify(save, null, 2)], { type: "application/json" }),
+      ),
+      a = document.createElement("a");
+    a.href = url;
+    a.download = "pawful-days-growth.json";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  $("#import").onchange = async (e) => {
+    try {
+      const data = JSON.parse(await e.target.files[0].text());
+      if (
+        ![1, 2, 3].includes(data.version) ||
+        typeof data.name !== "string" ||
+        !Number.isFinite(data.xp)
+      )
+        throw Error();
+      save = sanitize(data);
+      live.collected = new Set(save.collected);
+      course = makeCourse(save.course);
+      p = createPlayer(save.checkpoint);
+      persist();
+      $("#dialog").close();
+      showSelection();
+      toast("소중한 성장 기록을 불러왔어요");
+    } catch {
+      toast("꼬리의 하루에서 저장한 JSON 기록을 선택해 주세요.");
+    }
+  };
+  $("#reset").onclick = () => {
+    modal(
+      '<h2>새로운 아기 강아지와 만날까요?</h2><p>현재 성장과 모험 기록이 지워져요. 간직하려면 먼저 기록 파일을 내려받아 주세요.</p><button class="primary" id="confirm-reset">새로운 첫 만남 시작하기</button><button class="secondary" id="cancel-reset">지금 친구와 계속하기</button>',
+    );
+    $("#cancel-reset").onclick = pause;
+    $("#confirm-reset").onclick = () => {
+      save = createSave();
+      live.collected.clear();
+      p = createPlayer();
+      course = makeCourse(0);
+      $("#dialog").close();
+      showSelection();
+    };
+  };
+}
+$("#pause").onclick = pause;
+$("#close").onclick = () => {
+  if (mode === "complete") {
+    $("#dialog").close();
+    showSelection();
+  } else $("#dialog").close();
+};
+$("#dialog").addEventListener("close", () => {
+  resetInput();
+  if (mode === "complete") showSelection();
+  canvas.focus();
+});
+window.addEventListener("keydown", (e) => {
+  if (["INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if (["arrowleft", "arrowright", "arrowup", " ", "a", "d", "w"].includes(k))
+    e.preventDefault();
+  if ($("#dialog").open) return;
+  if (!e.repeat && (k === "escape" || k === "p") && mode === "play") {
+    pause();
+    return;
+  }
+  if (mode !== "play") return;
+  keys.add(k);
+  if (!e.repeat && [" ", "arrowup", "w"].includes(k)) doJump();
+  if (!e.repeat && k === "e") interact();
+});
+window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+window.addEventListener("blur", () => {
+  resetInput();
+  persist();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    resetInput();
+    persist();
+  }
+});
+for (const id of ["left", "right", "run", "jump"]) {
+  const b = $("#" + id),
+    property = id === "jump" ? "jumpHeld" : id;
+  b.onpointerdown = (e) => {
+    e.preventDefault();
+    b.setPointerCapture(e.pointerId);
+    touch[property] = true;
+    if (id === "jump") doJump();
+  };
+  for (const event of ["pointerup", "pointercancel", "lostpointercapture"])
+    b.addEventListener(event, () => (touch[property] = false));
+}
+window.addEventListener("resize", resize);
+async function init() {
+  try {
+    art = await loadArt();
+    resize();
+    document.querySelectorAll("[data-coat]").forEach((b) => {
+      const c = b.querySelector("canvas").getContext("2d");
+      drawDog(c, art, +b.dataset.coat, 90, 132, { mode: "idle", size: 153 });
+    });
+    $("#loading").classList.add("hidden");
+    showSelection();
+    requestAnimationFrame(frame);
+  } catch (error) {
+    $("#loading").innerHTML =
+      '<span>☁</span><p>그림을 불러오지 못했어요.</p><button id="retry">다시 불러오기</button>';
+    $("#retry").onclick = () => location.reload();
+    console.error(error);
+  }
+}
+init();

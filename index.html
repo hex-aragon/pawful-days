@@ -1,15 +1,121 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><meta name="theme-color" content="#647d56"><meta name="description" content="강아지가 되어 숲과 마을을 자유롭게 돌아다니는 2D 탐험 육성 게임"><title>꼬리의 하루 — 작은 발로 떠나는 모험</title><link rel="stylesheet" href="style.css"></head><body>
-<main id="game"><canvas id="world" aria-label="강아지 탐험 맵. 방향키 또는 WASD로 이동하고 E 키로 상호작용합니다." tabindex="0"></canvas>
-<div class="vignette"></div>
-<header class="hud"><div class="identity"><div class="portrait"><svg viewBox="0 0 60 60" aria-hidden="true"><path d="M12 26Q7 6 23 13Q32 6 42 15Q58 10 52 34L46 31Q48 51 30 53Q10 53 12 31Z" fill="#bb9467"/><path d="m12 26-5-12q10-9 17 0l-7 18m24-17q9-10 16 2l-8 17M24 13q8-4 16 2l-4 17-10-1Z" fill="#56554a"/><ellipse cx="30" cy="40" rx="12" ry="9" fill="#666052"/><circle cx="22" cy="30" r="4" fill="#252e2a"/><circle cx="40" cy="30" r="4" fill="#252e2a"/><circle cx="23" cy="29" r="1.5" fill="white"/><circle cx="41" cy="29" r="1.5" fill="white"/><ellipse cx="31" cy="38" rx="5" ry="3" fill="#252e2a"/></svg></div><div><button id="rename" title="이름 바꾸기"><b id="name">보리</b> <span>✎</span></button><span class="stage" id="stage">아기 강아지</span><div class="growth"><i id="growth"></i></div></div><span id="level">Lv.1</span></div><div class="top-center"><span id="region">햇살 마을</span><small id="day">첫 번째 날 · 포근한 아침</small></div><div class="hud-buttons"><button id="sound" aria-label="효과음 켜기" title="효과음">♫</button><button id="map-toggle" aria-label="전체 지도 열기" title="지도 (M)">⌘</button><button id="menu" aria-label="놀이 방법과 기록 관리" title="놀이 방법">☰</button></div></header>
-<section class="quest" aria-label="오늘의 모험"><div class="quest-title"><span>✦</span> 오늘의 작은 모험 <button id="quest-toggle" aria-label="모험 안내 접기">−</button></div><div id="quest-body"><h1 id="quest-name">세상에 첫 발자국</h1><p id="quest-description">집 앞의 할머니에게 인사하러 가요.</p><div class="quest-progress"><i id="quest-progress"></i></div><small id="quest-count">할머니를 찾아 E로 인사하기</small></div></section>
-<div class="needs"><span title="포만감">🥣 <i><b id="food"></b></i></span><span title="기운">☀ <i><b id="energy"></b></i></span><span title="행복">♡ <i><b id="love"></b></i></span></div>
-<button id="minimap-button" aria-label="전체 지도 열기"><canvas id="minimap" width="180" height="132"></canvas><span>우리 동네 <small>M</small></span></button>
-<div id="hint" class="hint">방향키 / WASD로 걸어 보세요 <span>가까이 가서 E로 교감해요</span></div>
-<div id="interact-wrap" class="interact-wrap hidden"><span id="interact-label">할머니</span><button id="interact"><kbd>E</kbd><span id="interact-text">인사하기</span></button></div>
-<div class="joystick" id="joystick" aria-label="이동 조이스틱"><div id="stick"></div></div><button class="mobile-run" id="run" aria-label="달리기">달리기</button>
-<div class="bottom-label"><span>꼬리의 하루</span><small id="save-state">추억이 저장돼요</small></div><div id="toast" role="status"></div>
-<div class="talk hidden" id="talk" role="status"><div class="talk-avatar">🌻</div><div><b id="speaker">할머니</b><p id="talk-text"></p></div><button id="talk-close" aria-label="대화 닫기">확인 <kbd>E</kbd></button></div>
-<dialog id="dialog"><button id="close" aria-label="닫기">×</button><div id="dialog-content"></div></dialog>
-</main><script type="module" src="app.js"></script></body></html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1"
+    />
+    <meta name="theme-color" content="#7ca954" />
+    <meta
+      name="description"
+      content="백구, 황구, 흑구, 우리 강아지와 함께 달리고 점프하는 2D 횡스크롤 모험 게임"
+    />
+    <title>꼬리의 하루 · 바람 따라 꼬리 따라</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main id="game">
+      <canvas
+        id="world"
+        tabindex="0"
+        aria-label="2D 횡스크롤 게임. 좌우 방향키로 달리고 스페이스로 점프해요."
+      ></canvas>
+      <div id="loading">
+        <span>✿</span>
+        <p>우리의 산책길을 그리고 있어요…</p>
+      </div>
+      <section id="start-screen" class="start-screen hidden">
+        <header>
+          <a href="./">✿ 꼬리의 하루</a
+          ><span>작은 발로 떠나는 커다란 모험</span>
+        </header>
+        <div class="title-block">
+          <p class="title-kicker">햇살 좋은 날, 너와 나의 모험</p>
+          <h1>바람 따라,<br />꼬리 따라.</h1>
+          <p class="title-description">
+            풀밭을 달리고, 개울을 폴짝.<br />네가 있어서 모든 길이 놀이터야.
+          </p>
+        </div>
+        <div class="choose-panel">
+          <div class="choose-heading">
+            <span>오늘의 모험 친구</span
+            ><button id="name-edit" title="강아지 이름 변경">
+              이름 짓기 ✎
+            </button>
+          </div>
+          <div class="coat-options" id="coat-options">
+            <button data-coat="0">
+              <canvas width="180" height="140"></canvas><b>백구</b
+              ><small>눈처럼 포근한</small></button
+            ><button data-coat="1">
+              <canvas width="180" height="140"></canvas><b>황구</b
+              ><small>햇살을 닮은</small></button
+            ><button data-coat="2">
+              <canvas width="180" height="140"></canvas><b>흑구</b
+              ><small>밤하늘처럼 빛나는</small></button
+            ><button data-coat="3">
+              <canvas width="180" height="140"></canvas><b>우리 강아지</b
+              ><small>사진 속 그 친구</small>
+            </button>
+          </div>
+          <button id="start" class="start-button">
+            <span>함께 달리기</span><span>▶</span>
+          </button>
+          <div class="start-foot">
+            <button id="courses">산책길 고르기</button
+            ><span>서두르지 않아도 괜찮아.</span
+            ><button id="start-help">놀이 방법</button>
+          </div>
+        </div>
+        <span class="art-note">달리고, 뛰고, 함께 자라는 2D 모험</span>
+      </section>
+      <section id="hud" class="hidden">
+        <div class="hud-left">
+          <button id="portrait-button" aria-label="강아지 선택 화면">
+            <canvas id="portrait" width="100" height="100"></canvas>
+          </button>
+          <div>
+            <b id="dog-name">보리</b><small id="growth-name">아기 강아지</small>
+            <div class="xp-track"><i id="xp"></i></div>
+          </div>
+          <span class="hearts" aria-label="편안한 모험">♥ ♥ ♥</span>
+        </div>
+        <div class="course-title">
+          <small id="course-number">첫 번째 산책길</small
+          ><b id="course-name">햇살 들판</b>
+          <div class="distance-track"><i id="distance"></i></div>
+        </div>
+        <div class="hud-right">
+          <span class="treat-counter">✦ <b id="treats">0</b></span
+          ><button id="sound" aria-label="효과음 켜기">♫</button
+          ><button id="pause" aria-label="일시 정지">Ⅱ</button>
+        </div>
+      </section>
+      <div id="controls" class="hidden">
+        <div class="move-buttons">
+          <button id="left" aria-label="왼쪽으로 달리기">◀</button
+          ><button id="right" aria-label="오른쪽으로 달리기">▶</button>
+        </div>
+        <div class="action-buttons">
+          <button id="run" aria-label="빠르게 달리기">달리기</button
+          ><button id="jump" aria-label="점프">↟<small>점프</small></button>
+        </div>
+      </div>
+      <div id="keyboard-hint" class="hidden">
+        <kbd>←</kbd><kbd>→</kbd> 달리기 <span></span><kbd>Space</kbd> 점프
+        <span></span><kbd>Shift</kbd> 빠르게 <span></span><kbd>E</kbd> 놀기
+      </div>
+      <button id="interact" class="hidden">
+        <kbd>E</kbd><span>놀기</span>
+      </button>
+      <div id="toast" role="status"></div>
+      <div id="save-note" class="hidden">발자국을 저장했어요</div>
+      <dialog id="dialog">
+        <button id="close" aria-label="닫기">×</button>
+        <div id="dialog-content"></div>
+      </dialog>
+    </main>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
